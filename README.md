@@ -40,7 +40,6 @@ npx hardhat node
 ```
 RPC_URL=<your-rpc-url-local>
 PRIVATE_KEY=<your-private-key-local>
-CONTRACT_ADDRESS=<local-deployed-contract-address>
 ```
 
 5. 
