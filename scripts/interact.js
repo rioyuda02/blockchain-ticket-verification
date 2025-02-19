@@ -1,47 +1,114 @@
 const { ethers } = require("hardhat");
 
 async function main() {
-  // Get the contract instance
-  const EventTicket = await ethers.getContractFactory("EventTicketS");
-  //Contract Address = "Replace with the contract address"
-  const eventTicket = await EventTicket.attach("0x5FbDB2315678afecb367f032d93F642f64180aa3");
+  try {
+    // Deploy the contract first
+    console.log("Deploying EventTicketS contract...");
+    const EventTicketS = await ethers.getContractFactory("EventTicketS");
+    const eventTicket = await EventTicketS.deploy();
+    await eventTicket.deployed();
+    console.log("Contract:", eventTicket.address);
 
-  // Create an event
-  const eventId = 1;
-  const eventName = "Blockchain-Based Event Ticket Verification";
-  const eventTimestamp = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
-  const eventType = "running";
+    // Get signer
+    const [owner] = await ethers.getSigners();
+    console.log("Using address:", owner.address);
 
-  // Get a signer (account) to send transactions
-  const [owner] = await ethers.getSigners();
+    // Event parameters
+    const eventParams = {
+      eventId: 1,
+      eventName: "Blockchain-Based Event Ticket Verification",
+      eventTimestamp: Math.floor(Date.now() / 1000) + 86400, // 24 hours from now
+      eventType: "running"
+    };
 
-  // Issue a ticket
-  const tx = await eventTicket.issueTicket(
-    owner.address,
-    eventId,
-    eventName,
-    eventTimestamp,
-    eventType
-  );
-  await tx.wait();
+    // Wait for a few blocks to ensure contract is properly deployed
+    await ethers.provider.send("evm_mine", []);
 
-  // Get event details
-  const eventDetails = await eventTicket.getEventDetails(eventId);
-  console.log("Event Details:", {
-    name: eventDetails.name,
-    timestamp: eventDetails.timestamp,
-    eventType: eventDetails.eventType,
-    isValid: eventDetails.isValid
-  });
+    console.log("\nIssuing ticket with parameters:");
+    console.log(eventParams);
 
-  // Verify ticket
-  const isValid = await eventTicket.verifyTicket(owner.address, eventId);
-  console.log("Ticket verification:", isValid);
+    // Issue ticket
+    const issueTx = await eventTicket.issueTicket(
+      owner.address,
+      eventParams.eventId,
+      eventParams.eventName,
+      eventParams.eventTimestamp,
+      eventParams.eventType,
+      { gasLimit: 500000 }
+    );
+    
+    console.log("Waiting for ticket issuance transaction...");
+    const receipt = await issueTx.wait();
+    console.log(`Transaction successful! Hash: ${receipt.hash}`);
+
+    // Log all events from the transaction
+    console.log("\nTransaction events:");
+    receipt.events?.forEach((event, index) => {
+      console.log(`Event ${index}:`, {
+        name: event.event,
+        args: event.args
+      });
+    });
+
+    // Get token ID from Transfer event (ERC721 standard event)
+    const transferEvent = receipt.events?.find(e => e.event === "Transfer");
+    if (transferEvent) {
+      const tokenId = transferEvent.args.tokenId;
+      console.log(`\nToken ID from Transfer event: ${tokenId.toString()}`);
+    }
+
+    // Verify owner's balance
+    const balance = await eventTicket.balanceOf(owner.address);
+    console.log(`Owner's ticket balance: ${balance.toString()}`);
+
+    // Try to get event details with explicit error handling
+    try {
+      console.log("\nFetching event details...");
+      const eventDetails = await eventTicket.getEventDetails(eventParams.eventId);
+      
+      console.log("Event Details:", {
+        name: eventDetails.name,
+        timestamp: new Date(Number(eventDetails.timestamp) * 1000).toLocaleString(),
+        eventType: eventDetails.eventType,
+        isValid: eventDetails.isValid
+      });
+    } catch (error) {
+      console.error("Error fetching event details:", error.message);
+      
+      // Check if the contract exists at the address
+      const code = await ethers.provider.getCode(eventTicket.address);
+      console.log(`Contract code exists at address: ${code !== "0x"}`);
+    }
+
+    // Verify ticket ownership
+    try {
+      console.log("\nVerifying ticket...");
+      const isValid = await eventTicket.verifyTicket(owner.address, eventParams.eventId);
+      console.log(`Ticket verification result: ${isValid}`);
+    } catch (error) {
+      console.error("Error verifying ticket:", error.message);
+    }
+
+  } catch (error) {
+    console.error("\nScript execution failed:", error);
+    
+    // Additional error information
+    if (error.transaction) {
+      console.log("\nTransaction details:");
+      console.log("From:", error.transaction.from);
+      console.log("To:", error.transaction.to);
+      console.log("Data:", error.transaction.data);
+    }
+    throw error;
+  }
 }
 
 main()
-  .then(() => process.exit(0))
+  .then(() => {
+    console.log("\nScript executed successfully");
+    process.exit(0);
+  })
   .catch((error) => {
-    console.error(error);
+    console.error("\nScript failed!");
     process.exit(1);
   });
